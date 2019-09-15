@@ -4,13 +4,13 @@
 #include <LiquidCrystal_I2C.h>
 #include <LCD.h>
 
+#define MAX_LENGTH 34
 LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
 RF24 radio(6, 7); // Hardware Konfiguration: RF24L01 Modul SPI mit Pins 6 und 7 verwenden.
 
 byte addresses[][5] = {"ADDR1", "ADDR2"};
-
-const int max_length = 16;
+//const int max_length = 16;
 
 const char alphabet[] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '_', '#'};
 const int alpha_len = sizeof(alphabet) / sizeof(alphabet[0]);
@@ -22,9 +22,13 @@ const int encoder[3] = {8, 9, 5};
 int alpha_pos = 0;
 String input = "";
 int PinALast = LOW;
+bool sendMsg;
+
+unsigned long cooldown = 0;
+bool cooldown_resetted = false;
 
 void setup() {
-  
+
   //lcd setup
   lcd.begin(16, 2);
   lcd.backlight();
@@ -49,22 +53,32 @@ void setup() {
     Serial.begin(9600);
 }
 
-bool sendMsg;
-
 void loop() {
-  
-  clickerHandling(&sendMsg);
+  if (cooldown < millis()) {
+    if (not(cooldown_resetted)) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Input: # to send");
+      cooldown_resetted = true;
+    }
+
+    //handling encoder, updating temp_char
+    encoderHandling(&sendMsg);
+  }
+
+  //on message send:
   if (sendMsg) {
+
+    //send message and print result
     sendMessage();
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Input: # to send");
     sendMsg = false;
     temp_char = 'a';
+
+    cooldown = millis() + 1000;
   }
 }
 
-bool clickerHandling(bool *sendMsg) {
+bool encoderHandling(bool *sendMsg) {
 
   int PinA = digitalRead(encoder[0]);
   if ((PinALast == LOW) && (PinA == HIGH)) {
@@ -78,13 +92,15 @@ bool clickerHandling(bool *sendMsg) {
 
 
   if (alpha_pos < 0) { //when scrolling left alpha_pos will be lesser than 0, to prevent error we add the length of the array
-    alpha_pos += alpha_len;
+    alpha_pos += alpha_len * 2;
   }
 
-  temp_char = alphabet[(alpha_pos/2 % alpha_len)];
-  lcd.setCursor(0, 1);
-  if (old_temp != temp_char)
+  temp_char = alphabet[(alpha_pos / 2 % alpha_len)];
+
+  if (old_temp != temp_char) {
+    lcd.setCursor(0, 1);
     lcd.print(input + temp_char);
+  }
 
   if (!digitalRead(encoder[2])) {
     if (temp_char == '_') {
@@ -105,14 +121,26 @@ bool clickerHandling(bool *sendMsg) {
 void sendMessage() {
   char Payload[34] = "";
 
-  for (int i = 0; i < min(input.length(), max_length); i++) {
+  for (int i = 0; i < min(input.length(), MAX_LENGTH); i++) {
     Payload[i] = input[i];
   }
 
   radio.stopListening();
   bool success = radio.write(&Payload, sizeof(Payload));
+  lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print("Sent. Response " + String(success));
 
   input = "";
+}
+
+int getEncoderState() {
+  if (digitalRead(encoder[0]) and digitalRead(encoder[0]))
+    return 0;
+  else if (digitalRead(encoder[0]) and digitalRead(encoder[1]))
+    return 1;
+  else if (digitalRead(encoder[1]) and digitalRead(encoder[0]))
+    return 2;
+  else if (digitalRead(encoder[1]) and digitalRead(encoder[1]))
+    return 3;
 }
